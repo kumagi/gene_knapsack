@@ -48,69 +48,81 @@ struct problem : public singleton<problem>{
 };
 
 class gene{
+private:
+	std::vector<char> gen;
+	size_t length;
 public:
-	std::string gen;
-	gene(){}
-	gene(const std::string& org): gen(org){}
-	gene cross_over(const gene& rhs)const{
-		std::string child;
-		rand_bit rb;
-		child.reserve(gen.size());
-		for(size_t i=0; i < gen.size();i++){
-			child += rb.get() ? gen[i] : rhs.gen[i];
-		}
-		return gene(child);
-	}
-	
+	gene():length(0){}
 	void dump()const{
-		std::cout << "[" << gen << "|" << eval() << "] ";
+		std::cout << "[";
+		for(size_t i = 0;i<length ; i++){
+			std::cout << (get(i) ? "1" : "0");
+		}
+		std::cout << "|" << eval() << "] ";
 	}
 	int eval()const{
-		problem& p = problem::instance();
+		const problem& p = problem::instance();
 		int ans = 0;
 		int weight = 0;
-		for(std::size_t i=0;i<gen.size();i++){
-			if(gen[i] == '1'){
+		for(size_t i=0;i<length;i++){
+			if(get(i)){
 				ans += p.itemset[i].value();
 				weight += p.itemset[i].weight();
 			}
 		}
 		return weight > p.sack_size ? 0 : ans;
 	}
+	inline bool get(const int i)const{
+		return static_cast<bool>(gen[i/8] & (1 << (i%8)));
+	}
+	gene& operator+=(const bool& t){
+		if((length % 8) == 0) {gen.push_back('\0');}
+		gen[length/8] |= t <<(length&7);
+		length++;
+		return *this;
+	}
+	inline void reserve(int newlength){
+		gen.reserve(newlength/8+1);
+	}
 	bool operator==(const gene& rhs)const{
-		return gen == rhs.gen;
+		for(size_t i = 0; i<length; ++i){
+			if(get(i) != rhs.get(i)) return false;
+		}return true;
+		if(length != rhs.length) return false;
+		for(size_t i=0;i<length/8; i++){
+			if(gen[i] != rhs.gen[i]) return false;
+		}
+		if((length % 8) == 0) return true;
+		return ((gen[length/8] ^ rhs.gen[length/8]) &
+			(((1 <<(length & 7)) + 1) - 1)) == 0;
 	}
 	bool operator<(const gene& rhs)const{
 		return eval() < rhs.eval();
 	}
-	gene operator*(const gene& rhs)const{
-		return cross_over(rhs);
-	}
-	static char inverse(char gene){
-		return gene == '0' ? '1' : '0';
-	}
+
 	gene operator/(const gene& rhs)const{
-		std::string child;
-		child.reserve(gen.size());
+		gene child;
+		child.reserve(length*8);
 		rand_bit rb;
 		for(size_t i=0;i<gen.size();i++){
 			child += rand() & 15 ?
-				(rb.get() ? gen[i] : rhs.gen[i])
-				: inverse(gen[i]);
+				(rb.get() ? get(i) : rhs.get(i))
+				: !get(i);
 		}
+		child.length=length;
 		return gene(child);
 	}
 };
 
 struct generation{
 	std::vector<gene> idvs;
-	void random_set(int number, int len){
+	void random_set(int number, const int len){
 		idvs.reserve(number);
 		rand_bit rb;
 		while(number > 0){
 			gene indv;
-			indv.gen.reserve(len);
-			for(int i=len; i>0; --i){indv.gen += rb.get() ? "0" : "1";}
+			indv.reserve(len);
+			for(int i=len; i>0; --i){indv+=rb.get();}
 			idvs.push_back(indv);
 			--number;
 		}
@@ -119,7 +131,7 @@ struct generation{
 		idvs.push_back(indv);
 	}
 	void eliminate_poor(int next_size){
-		std::sort(idvs.rbegin(),idvs.rend());
+		sort();
 		idvs.resize(next_size);
 	}
 	bool one_gene()const{
@@ -139,9 +151,10 @@ struct generation{
 	
 struct roulette{
 	std::vector<int> border;
-	int entries;
+	const int entries;
 	int sum;
-		roulette(const generation& world):entries(world.idvs.size()),sum(0){
+	roulette(const generation& world):entries(world.idvs.size()),sum(0){
+		border.reserve(world.idvs.size());
 		for(size_t i=0;i<world.idvs.size();i++){
 			int evaled = world.idvs[i].eval();
 			evaled += evaled == 0 ? 1 : 0;
@@ -193,14 +206,15 @@ int main(int argc,char** argv){
 		}
 		p.item_quantum = p.itemset.size();
 		std::sort(p.itemset.rbegin(), p.itemset.rend());
-		//IN_DEBUG(p.dump());
+		IN_DEBUG(p.dump());
 		DEBUG("item:%d\n",p.itemset.size());
 	}
 	srand(s.random_seed);
 	
 	generation world;
-	world.random_set(2048, p.item_quantum);
-	//IN_DEBUG(world.dump());
+	world.random_set(128, p.item_quantum);
+	//IN_DEBUG(world.sort());
+	IN_DEBUG(world.dump());
 	
 	// start genetic algorithm
 	{
@@ -214,7 +228,8 @@ int main(int argc,char** argv){
 				const gene& parent2(world.idvs[rlt.get_result(rand())]);
 				world.insert_indv(parent1 / parent2);
 			}
-			world.eliminate_poor(2048);
+			world.eliminate_poor(128);
+			world.dump();
 			++cnt;
 		}
 		world.idvs[0].dump();
