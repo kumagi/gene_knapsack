@@ -171,7 +171,13 @@ int main(int argc,char** argv){
 		}else{
 			s.random_seed = time(NULL);
 		}
+		if(argc == 4){
+			s.idv_number = atoi(argv[3]);
+		}else{
+			s.idv_number = 512;
+		}
 		printf("seed: %d \n", s.random_seed);
+		printf("idvs: %d \n", s.idv_number);
 	}
 	{ // read file
 		std::ifstream file(s.filename.c_str());
@@ -199,7 +205,7 @@ int main(int argc,char** argv){
 	srand(s.random_seed);
 	
 	generation world;
-	world.random_set(2048, p.item_quantum);
+	world.random_set(s.idv_number, p.item_quantum);
 	//IN_DEBUG(world.dump());
 	
 	// start genetic algorithm
@@ -214,7 +220,7 @@ int main(int argc,char** argv){
 				const gene& parent2(world.idvs[rlt.get_result(rand())]);
 				world.insert_indv(parent1 / parent2);
 			}
-			world.eliminate_poor(2048);
+			world.eliminate_poor(world.idvs.size()/2);
 			++cnt;
 		}
 		world.idvs[0].dump();
