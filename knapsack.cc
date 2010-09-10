@@ -34,6 +34,7 @@ struct settings : public singleton<settings>{
 	std::string filename;
 	int filesize;
 	int idv_number;
+	int mutation_rate;
 };
 
 
@@ -49,23 +50,23 @@ struct problem : public singleton<problem>{
 
 class gene{
 private:
-	std::vector<char> gen;
-	size_t length;
+	std::vector<bool> gen;
 public:
-	gene():length(0){}
+	gene(){}
 	void dump()const{
 		std::cout << "[";
-		for(size_t i = 0;i<length ; i++){
-			std::cout << (get(i) ? "1" : "0");
+		for(size_t i = 0;i<gen.size() ; i++){
+			std::cout << (gen[i] ? "1" : "0");
 		}
 		std::cout << "|" << eval() << "] ";
 	}
+	std::vector<bool> get_gene(void)const{return gen;}
 	int eval()const{
 		const problem& p = problem::instance();
 		int ans = 0;
 		int weight = 0;
-		for(size_t i=0;i<length;i++){
-			if(get(i)){
+		for(size_t i=0;i<gen.size();i++){
+			if(gen[i]){
 				ans += p.itemset[i].value();
 				weight += p.itemset[i].weight();
 			}
@@ -76,25 +77,23 @@ public:
 		return static_cast<bool>(gen[i/8] & (1 << (i%8)));
 	}
 	gene& operator+=(const bool& t){
-		if((length % 8) == 0) {gen.push_back('\0');}
-		gen[length/8] |= t <<(length&7);
-		length++;
+		gen.push_back(t);
 		return *this;
 	}
 	inline void reserve(int newlength){
 		gen.reserve(newlength/8+1);
 	}
 	bool operator==(const gene& rhs)const{
-		for(size_t i = 0; i<length; ++i){
-			if(get(i) != rhs.get(i)) return false;
+		for(size_t i = 0; i<gen.size(); ++i){
+			if(gen[i] != rhs.gen[i]) return false;
 		}return true;
-		if(length != rhs.length) return false;
-		for(size_t i=0;i<length/8; i++){
+		if(gen.size() != rhs.gen.size()) return false;
+		for(size_t i=0;i<gen.size()/8; i++){
 			if(gen[i] != rhs.gen[i]) return false;
 		}
-		if((length % 8) == 0) return true;
-		return ((gen[length/8] ^ rhs.gen[length/8]) &
-			(((1 <<(length & 7)) + 1) - 1)) == 0;
+		if((gen.size() % 8) == 0) return true;
+		return ((gen[gen.size()/8] ^ rhs.gen[gen.size()/8]) &
+			(((1 <<(gen.size() & 7)) + 1) - 1)) == 0;
 	}
 	bool operator<(const gene& rhs)const{
 		return eval() < rhs.eval();
@@ -102,14 +101,13 @@ public:
 
 	gene operator/(const gene& rhs)const{
 		gene child;
-		child.reserve(length*8);
+		child.reserve(gen.size()*8);
 		rand_bit rb;
 		for(size_t i=0;i<gen.size();i++){
 			child += rand() & 15 ?
-				(rb.get() ? get(i) : rhs.get(i))
-				: !get(i);
+				(rb.get() ? gen[i] : rhs.gen[i])
+				: !gen[i];
 		}
-		child.length=length;
 		return gene(child);
 	}
 };
@@ -131,6 +129,7 @@ struct generation{
 		idvs.push_back(indv);
 	}
 	void eliminate_poor(int next_size){
+		//std::random_shuffle(idvs.begin(),idvs.end());
 		sort();
 		idvs.resize(next_size);
 	}
@@ -162,8 +161,8 @@ struct roulette{
 			border.push_back(sum);
 		}
 	}
-	int get_result(int target)const{
-		const int entry = target % sum;
+	int spin(void)const{
+		const int entry = rand() % sum;
 		int i = 0;
 		while(i < entries && border[i] < entry) i++;
 		if(i==entries) --i;
@@ -179,8 +178,18 @@ int main(int argc,char** argv){
 		if(argc < 2){fprintf(stderr,"input filename\n");exit(1);}
 		s.filename = argv[1];
 		printf("filename: %s \n", s.filename.c_str());
-		if(argc == 3){
-			s.random_seed = atoi(argv[2]);
+		if(argc >= 3){
+			s.idv_number = atoi(argv[2]);
+		}else{
+			s.idv_number = time(NULL);
+		}
+		if(argc >= 4){
+			s.mutation_rate = atoi(argv[3]);
+		}else{
+			s.mutation_rate = 15;
+		}
+		if(argc >= 5){
+			s.random_seed = atoi(argv[4]);
 		}else{
 			s.random_seed = time(NULL);
 		}
@@ -212,24 +221,24 @@ int main(int argc,char** argv){
 	srand(s.random_seed);
 	
 	generation world;
-	world.random_set(128, p.item_quantum);
+	world.random_set(512, p.item_quantum);
 	//IN_DEBUG(world.sort());
-	IN_DEBUG(world.dump());
+	//IN_DEBUG(world.dump());
 	
 	// start genetic algorithm
 	{
-		const int new_generation = world.idvs.size(); 
+		const int new_generation = world.idvs.size();
 		int cnt = 0;
 		while(!world.one_gene()){
 			const roulette rlt(world);
 			world.idvs.reserve(world.idvs.size() + new_generation);
 			for(int i=0; i < new_generation; i++){
-				const gene& parent1(world.idvs[rlt.get_result(rand())]);
-				const gene& parent2(world.idvs[rlt.get_result(rand())]);
+				const gene& parent1(world.idvs[rlt.spin()]);
+				const gene& parent2(world.idvs[rlt.spin()]);
 				world.insert_indv(parent1 / parent2);
 			}
-			world.eliminate_poor(128);
-			world.dump();
+
+			world.eliminate_poor(world.idvs.size()/2);
 			++cnt;
 		}
 		world.idvs[0].dump();
