@@ -112,39 +112,67 @@ public:
 	}
 };
 
-struct generation{
-	std::vector<gene> idvs;
+class generation{
+	std::multiset<gene> idvs;
+public:
 	void random_set(int number, const int len){
-		idvs.reserve(number);
 		rand_bit rb;
 		while(number > 0){
 			gene indv;
-			indv.reserve(len);
+//			indv.reserve(len);
 			for(int i=len; i>0; --i){indv+=rb.get();}
-			idvs.push_back(indv);
+			idvs.insert(indv);
 			--number;
 		}
 	}
+	size_t size(void)const{return idvs.size();}
 	void insert_indv(const gene& indv){
-		idvs.push_back(indv);
+		idvs.insert(indv);
 	}
 	void eliminate_poor(int next_size){
 		//std::random_shuffle(idvs.begin(),idvs.end());
-		sort();
-		idvs.resize(next_size);
+		assert(next_size >0);
+		std::multiset<gene>::iterator it = idvs.begin();
+		while(next_size--) it++;
+		idvs.erase(it,idvs.end());
 	}
 	bool one_gene()const{
-		for(size_t i=0; i < idvs.size(); i++){
-			if(!(idvs[i] == idvs[0])) return false;
+		for(std::multiset<gene>::const_iterator it = idvs.begin();it!=idvs.end();++it){
+			if(!(*idvs.begin() == *it)) return false;
 		}
 		return true;
 	}
+	const gene& operator[](const size_t idx)const{
+		assert(idx < idvs.size());
+		std::multiset<gene>::const_iterator it = idvs.begin();
+		for(size_t i=0;i<idx;++i){
+			++it;
+		}
+		return *it;
+	}
 	void sort(){
-		std::sort(idvs.rbegin(), idvs.rend());
+		//std::sort(idvs.rbegin(), idvs.rend());
 	}
 	void dump()const{
 		std::for_each(idvs.begin(),idvs.end(),std::mem_fun_ref(&gene::dump));
 	}
+	class iterator;
+	typedef const iterator const_iterator;
+	class iterator{
+		std::multiset<gene>::iterator it;
+	public:
+		iterator(std::multiset<gene>::iterator _it):it(_it){};
+		iterator& operator++(int){ ++it; return *this;}
+		bool operator==(const iterator& rhs)const{return it == rhs.it;};
+		bool operator!=(const iterator& rhs)const{return it != rhs.it;};
+		const gene& operator*()const{return *it;}
+		const gene* operator->()const{return &*it;}
+	};
+	
+	iterator begin(){ return iterator(idvs.begin());}
+	iterator end(){ return iterator(idvs.end());}
+	const_iterator begin()const{ return iterator(idvs.begin());}
+	const_iterator end()const{ return iterator(idvs.end());}
 };
 
 	
@@ -152,10 +180,10 @@ struct roulette{
 	std::vector<int> border;
 	const int entries;
 	int sum;
-	roulette(const generation& world):entries(world.idvs.size()),sum(0){
-		border.reserve(world.idvs.size());
-		for(size_t i=0;i<world.idvs.size();i++){
-			int evaled = world.idvs[i].eval();
+	roulette(const generation& world):entries(world.size()),sum(0){
+		border.reserve(world.size());
+		for(generation::iterator it=world.begin(); it != world.end(); it++){
+			int evaled = it->eval();
 			evaled += evaled == 0 ? 1 : 0;
 			sum += evaled;
 			border.push_back(sum);
@@ -163,10 +191,7 @@ struct roulette{
 	}
 	int spin(void)const{
 		const int entry = rand() % sum;
-		int i = 0;
-		while(i < entries && border[i] < entry) i++;
-		if(i==entries) --i;
-		return i;
+		return std::distance(border.begin(), std::lower_bound(border.begin(),border.end(),entry));
 	}
 };
 
@@ -227,21 +252,20 @@ int main(int argc,char** argv){
 	
 	// start genetic algorithm
 	{
-		const int new_generation = world.idvs.size();
+		const int new_generation = world.size();
 		int cnt = 0;
 		while(!world.one_gene()){
 			const roulette rlt(world);
-			world.idvs.reserve(world.idvs.size() + new_generation);
 			for(int i=0; i < new_generation; i++){
-				const gene& parent1(world.idvs[rlt.spin()]);
-				const gene& parent2(world.idvs[rlt.spin()]);
+				const gene& parent1(world[rlt.spin()]);
+				const gene& parent2(world[rlt.spin()]);
 				world.insert_indv(parent1 / parent2);
 			}
-
-			world.eliminate_poor(world.idvs.size()/2);
+			world.dump();
+			world.eliminate_poor(world.size()/2);
 			++cnt;
 		}
-		world.idvs[0].dump();
+		world[0].dump();
 		std::cout << std::endl << "In " << cnt << " generation" << std::endl;
 	}
 }
