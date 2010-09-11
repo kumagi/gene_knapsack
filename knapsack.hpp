@@ -26,14 +26,14 @@ struct item{
 	}
 };
 
-class rand_bit{
+class random_bit{
 	int cnt;
 	int random;
 public:
-	rand_bit():cnt(32),random(rand()){}
-	bool get(void){
+	random_bit():cnt(32),random(rand()){}
+	bool operator()(void){
 		if(cnt){--cnt;bool ans=(random&1)==1;random>>=1;return ans;}
-		else {cnt = 32; random=rand(); return get();}
+		else {cnt = 32; random=rand(); return operator()();}
 	}
 };
 

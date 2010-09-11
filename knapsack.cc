@@ -125,10 +125,10 @@ public:
 	gene operator/(const gene& rhs)const{
 		gene child;
 		child.gen.reserve(gen.size());
-		rand_bit rb;
+		random_bit rb;
 		for(size_t i=0;i<gen.size();i++){
 			child += rand() % settings::instance().mutation_rate ?
-				(rb.get() ? gen[i] : rhs.gen[i])
+				(rb() ? gen[i] : rhs.gen[i])
 				: !gen[i];
 		}
 		return gene(child);
@@ -140,38 +140,39 @@ std::ostream& operator<<(std::ostream& o, const gene& g){
 }
 
 class generation{
-	std::multiset<gene> idvs;
+	std::vector<gene> idvs;
 public:
 	void random_set(int number, const int len){
-		rand_bit rb;
+		random_bit rb;
+		idvs.reserve(number);
 		while(number > 0){
 			gene indv;
 //			indv.reserve(len);
 			
-			for(int i=len; i>0; --i){indv+=rb.get();}
-			idvs.insert(indv);
+			for(int i=len; i>0; --i){indv+=rb();}
+			idvs.push_back(indv);
 			--number;
 		}
 	}
 	size_t size(void)const{return idvs.size();}
-	void insert_indv(const gene& indv){
-		idvs.insert(indv);
+	void insert(const gene& indv){
+		idvs.push_back(indv);
 	}
 	void merge(const std::vector<gene>& org){
+		idvs.reserve(idvs.size() + org.size());
 		for(std::vector<gene>::const_iterator it=org.begin();
 				it != org.end();
 				++it){
-			idvs.insert(*it);
+			idvs.push_back(*it);
 		}
 	}
 	void eliminate_poor(int next_size){
 		assert(next_size >0);
-		std::multiset<gene>::const_iterator it = idvs.begin();
-		std::advance(it, next_size);
-		idvs.erase(idvs.begin(),it);
+		std::nth_element(idvs.rbegin(),idvs.rbegin() + next_size, idvs.rend());
+		idvs.resize(next_size);
 	}
 	bool one_gene()const{
-		for(std::multiset<gene>::const_iterator it = idvs.begin();it!=idvs.end();++it){
+		for(std::vector<gene>::const_iterator it = idvs.begin();it!=idvs.end();++it){
 			if(!(*idvs.begin() == *it)) return false;
 		}
 		//std::find_if(idvs.begin(), idvs.end(), std::bind1st(&std::equal<gene>(), *idvs.begin()));
@@ -179,7 +180,7 @@ public:
 	}
 	const gene& operator[](const size_t idx)const{
 		assert(idx < idvs.size());
-		std::multiset<gene>::const_iterator it = idvs.begin();
+		std::vector<gene>::const_iterator it = idvs.begin();
 		std::advance(it, idx);
 		return *it;
 	}
@@ -189,9 +190,9 @@ public:
 	class iterator;
 	typedef const iterator const_iterator;
 	class iterator{
-		std::multiset<gene>::iterator it;
+		std::vector<gene>::const_iterator it;
 	public:
-		iterator(std::multiset<gene>::iterator _it):it(_it){};
+		iterator(std::vector<gene>::const_iterator _it):it(_it){};
 		iterator& operator++(){ ++it; return *this;}
 		bool operator==(const iterator& rhs)const{return it == rhs.it;};
 		bool operator!=(const iterator& rhs)const{return it != rhs.it;};
@@ -286,19 +287,18 @@ int main(int argc,char** argv){
 		int cnt = 0;
 		while(!world.one_gene()){
 			const roulette rlt(world);
-			std::vector<gene> new_generation;
 			for(int i=0; i < qty; i++){
 				const gene& parent1(world[rlt.spin()]);
 				const gene& parent2(world[rlt.spin()]);
-				new_generation.push_back(parent1 / parent2);
+				world.insert(parent1 / parent2);
 			}
 			
-			world.merge(new_generation);
 			//std::cout << std::endl;
 			world.eliminate_poor(world.size()/2);
 			//world.dump();
 			//std::cout<<std::endl<<std::endl;
 			++cnt;
+			DEBUG("\r%d generation\r",cnt);
 		}
 		IN_DEBUG(world[0].dump());
 		IN_DEBUG(std::cout << std::endl << "In " << cnt << " generation in" << world.size() << std::endl);
