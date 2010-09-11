@@ -1,5 +1,5 @@
 CXX=g++
-OPTS=-O4 -fexceptions -g
+OPTS=-O0 -fexceptions -pg -g
 
 
 #TEST_LD= -lpthread $(LD)
