@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <fstream>
 #include <functional>
@@ -9,7 +8,7 @@
 
 #include "knapsack.hpp"
 
-#define NDEBUG
+//#define NDEBUG
 #ifndef NDEBUG
 #define DEBUG(...) fprintf(stderr,__VA_ARGS__)
 #define IN_DEBUG(x) x
@@ -37,16 +36,18 @@ struct settings : public singleton<settings>{
 	std::string filename;
 	int filesize;
 	int idv_number;
-	int mutation_rate;
+	int mutation_denominator;
+	int mutation_nominator;
 	void dump()const{
 		std::cout << "random_seed: " << random_seed
 							<< "\nindivisuals: " << idv_number
-							<< "\nmutation rate: 1/" << mutation_rate
+							<< "\nmutation : " << mutation_nominator
+							<< "/ " << mutation_denominator
 							<< std::endl;
 	}
 };
 std::ostream& operator<<(std::ostream& o, const settings& s){
-	o << s.idv_number << "," << s.mutation_rate;
+	o << s.idv_number << "," << s.mutation_nominator << "/" << s.mutation_denominator;
 	return o;
 }
 
@@ -65,41 +66,25 @@ std::ostream& operator<<(std::ostream& o, const problem& p){
 	return o;
 }
 
-
-
 void bit_dump(bool t){
 	std::cout <<( t ? "1" : "0");
 }
+
 class gene{
 private:
 	std::vector<bool> gen;
-	bool eval_calc;
-	int evaled;
+	friend class gene_hash;
+	mutable bool evaled;
+	mutable int evalparam;
 public:
-	gene():eval_calc(false){}
+	gene():evaled(false){}
 	void dump()const{
 		std::cout << "[";
 		std::for_each(gen.begin(),gen.end(),&bit_dump);
 		std::cout << "|" << eval() << "] ";
 	}
 	std::vector<bool> get_gene(void)const{return gen;}
-	int eval()const{
-		if(eval_calc) return evaled;
-		const problem& p = problem::instance();
-		int ans = 0;
-		int weight = 0;
-		for(size_t i=0;i<gen.size();i++){
-			if(gen[i]){
-				ans += p.itemset[i].value();
-				weight += p.itemset[i].weight();
-			}
-		}
-		int& tmp = const_cast<int&>(evaled);
-		tmp = weight > p.sack_size ? 0 : ans;
-		bool& flag = const_cast<bool&>(eval_calc);
-		flag = true;
-		return evaled;
-	}
+	int eval()const;
 
 	
 	gene& operator+=(const bool& t){
@@ -121,22 +106,84 @@ public:
 	bool operator<(const gene& rhs)const{
 		return eval() < rhs.eval();
 	}
-
-	gene operator/(const gene& rhs)const{
+	
+	gene operator/(const gene& rhs)const{ // random crossover
 		gene child;
+		const settings& s = settings::instance();
 		child.gen.reserve(gen.size());
 		random_bit rb;
 		for(size_t i=0;i<gen.size();i++){
-			child += rand() % settings::instance().mutation_rate ?
-				(rb() ? gen[i] : rhs.gen[i])
-				: !gen[i];
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !gen[i] : (rb() ? gen[i] : rhs.gen[i]);
 		}
-		return gene(child);
+		return child;
+	}
+	gene operator*(const gene& rhs)const{ // one point cross over
+		gene child;
+		const settings& s = settings::instance();
+		child.gen.reserve(gen.size());
+		const size_t father_len = (rand() % (gen.size() - 2)) + 1;
+		size_t i=0;
+		for(;i<father_len; i++)
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !gen[i] : gen[i];
+		for(;i<rhs.gen.size();i++)
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !rhs.gen[i] : rhs.gen[i];
+		return child;
+	}
+	gene operator%(const gene& rhs)const{ // two point cross over
+		gene child;
+		const settings& s = settings::instance();
+		child.gen.reserve(gen.size());
+		child.gen.reserve(gen.size());
+		const size_t one_point = (rand() % (gen.size() - 2)) + 1;
+		const size_t two_point = (rand() % (gen.size() - 2)) + 1;
+		const size_t first_point = one_point < two_point ? one_point : two_point;
+		const size_t second_point = one_point < two_point ? two_point : one_point;
+		size_t i=0;
+		for(;i<first_point; i++)
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !gen[i] : gen[i];
+		for(;i<second_point;i++)
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !rhs.gen[i] : rhs.gen[i];
+		for(;i<rhs.gen.size();i++)
+			child += (rand() % s.mutation_denominator) < s.mutation_nominator
+				? !rhs.gen[i] : rhs.gen[i];
+		return child;
 	}
 };
 std::ostream& operator<<(std::ostream& o, const gene& g){
 	o << g.eval();
 	return o;
+}
+
+struct gene_hash{
+	std::size_t operator()(const gene& g)const{
+		int ans=0;
+		for(size_t i=0;i<g.gen.size();i++){
+			ans+=g.gen[i];
+			ans <<= 1;
+		}
+		return ans;
+	}
+};
+int gene::eval()const{
+	if(evaled) return evalparam;
+	const problem& p = problem::instance();
+	int ans = 0;
+	int weight = 0;
+	for(size_t i=0;i<gen.size();i++){
+		if(gen[i]){
+			ans += p.itemset[i].value();
+			weight += p.itemset[i].weight();
+		}
+	}
+	ans = weight > p.sack_size ? 0 : ans;
+	evalparam = ans;
+	evaled = true;
+	return evalparam;
 }
 
 class generation{
@@ -222,7 +269,7 @@ struct roulette{
 	}
 	int spin(void)const{
 		const int entry = rand() % sum;
-		assert(std::distance(border.begin(), std::lower_bound(border.begin(),border.end(),0)) == 0);
+		//assert(std::distance(border.begin(), std::lower_bound(border.begin(),border.end(),0)) == 0);
 		return std::distance(border.begin(), std::lower_bound(border.begin(),border.end(),entry));
 	}
 };
@@ -232,25 +279,38 @@ int main(int argc,char** argv){
 	settings& s = settings::instance();
 	problem& p = problem::instance();
 	{ // parse options
-		if(argc < 2){fprintf(stderr,"input filename\n");exit(1);}
+		if(argc < 2){fprintf(stderr,"input filename\n");
+			std::cout << "[filename] [number of indivisuals] [mutation-nominator] [mutation-denominator] [random seed]" <<std::endl;;
+			exit(1);
+		}
 		s.filename = argv[1];
 		DEBUG("filename: %s \n", s.filename.c_str());
 		if(argc >= 3){
 			s.idv_number = atoi(argv[2]);
+			if(s.idv_number == 0){
+				std::cout << "[filename] [number of indivisuals] [mutation-nominator] [mutation-denominator] [random seed]" <<std::endl;;
+				exit(0);
+			}
 		}else{
 			s.idv_number = 512;
 		}
 		if(argc >= 4){
-			s.mutation_rate = atoi(argv[3]);
+			s.mutation_nominator = atoi(argv[3]);
 		}else{
-			s.mutation_rate = 15;
+			s.mutation_nominator = 1;
 		}
 		if(argc >= 5){
-			s.random_seed = atoi(argv[4]);
+			s.mutation_denominator = atoi(argv[4]);
+		}else{
+			s.mutation_denominator = 16;
+		}
+		if(argc >= 6){
+			s.random_seed = atoi(argv[5]);
 		}else{
 			s.random_seed = time(NULL);
 		}
 	}
+	
 	{ // read file
 		std::ifstream file(s.filename.c_str());
 		
@@ -273,7 +333,9 @@ int main(int argc,char** argv){
 		std::sort(p.itemset.rbegin(), p.itemset.rend());
 		IN_DEBUG(p.dump());
 	}
+	
 	IN_DEBUG(s.dump());
+
 	srand(s.random_seed);
 	
 	generation world;
@@ -290,18 +352,22 @@ int main(int argc,char** argv){
 			for(int i=0; i < qty; i++){
 				const gene& parent1(world[rlt.spin()]);
 				const gene& parent2(world[rlt.spin()]);
-				world.insert(parent1 / parent2);
+//				world.insert(parent1 / parent2); // random point cross
+//				world.insert(parent1 * parent2); // one point cross
+				world.insert(parent1 % parent2); // two point cross
 			}
 			
-			//std::cout << std::endl;
-			world.eliminate_poor(world.size()/2);
-			//world.dump();
-			//std::cout<<std::endl<<std::endl;
+			world.eliminate_poor(world.size()/2);			
+			std::cout << "generation: " << cnt << std::endl;
+			world.dump();
+//			std::cout  << std::endl;
+//			std::cout<< world.size() <<std::endl;
+//			std::cin >> cnt;
 			++cnt;
-			DEBUG("\r%d generation\r",cnt);
 		}
+		IN_DEBUG(std::cout << std::endl << std::endl << "Answer: ");
 		IN_DEBUG(world[0].dump());
-		IN_DEBUG(std::cout << std::endl << "In " << cnt << " generation in" << world.size() << std::endl);
+		IN_DEBUG(std::cout << " in " << cnt << " generation by " << world.size() << "indivisuals." << std::endl);
 		GP_OUT(std::cout << p << "," << world[0] << "," << cnt << "," << s << std::endl);
 	}
 }
